@@ -80,12 +80,61 @@ ESP32S3_SIM7670_OTA ota(
 
 Preferences prefs;
 
+// ----------------------------------------------------
+// Extract only date: YYYY/MM/DD
+// ----------------------------------------------------
+String extractDate(const String &response) {
+  int len = response.length();
+
+  for (int i = 0; i < len - 10; i++) {
+    // Check format YYYY/MM/DD
+    if (isdigit(response[i]) && isdigit(response[i + 1]) && isdigit(response[i + 2]) && isdigit(response[i + 3]) && response[i + 4] == '/' && isdigit(response[i + 5]) && isdigit(response[i + 6]) && response[i + 7] == '/' && isdigit(response[i + 8]) && isdigit(response[i + 9])) {
+      return response.substring(i, i + 10);
+    }
+  }
+
+  return "";
+}
+
+// ----------------------------------------------------
+// Return true if date changed
+// ----------------------------------------------------
+bool isResponseDateChanged(const String &response) {
+  String newDate = extractDate(response);
+
+  if (newDate == "") {
+    Serial.println("No date found");
+    return false;
+  }
+
+  prefs.begin("api-data", false);
+
+  String savedDate = prefs.getString("last_date", "");
+
+  Serial.println("Saved Date : " + savedDate);
+  Serial.println("New Date   : " + newDate);
+
+  if (savedDate != newDate) {
+    prefs.putString("last_date", newDate);
+
+    prefs.end();
+
+    Serial.println("Date changed");
+    return true;
+  }
+
+  prefs.end();
+
+  Serial.println("Date same");
+  return false;
+}
+
 // ===================== Globals =====================
 String tId = "t1";
 sensors_event_t a, g, temp;
 
 RTC_DATA_ATTR int bootCount = 0;
-RTC_DATA_ATTR unsigned long rainCount = 0;  // persistent across deep-sleep
+RTC_DATA_ATTR volatile unsigned long rainCount = 0;  // persistent across deep-sleep
 RTC_DATA_ATTR volatile unsigned long motionCount = 0;
 
 bool rainWake = false;
@@ -94,7 +143,7 @@ bool loRaAvailable = false;
 // ===================== Function Declarations =====================
 String sendGSMData(String url);
 bool extractOTA(String payload, String &version, String &url);
-void print_wakeup_reason();
+void print_wakeup_reason(esp_sleep_wakeup_cause_t reason);
 void readGSM();
 void initBH1750();
 void initBMP180();
@@ -157,6 +206,8 @@ void setup() {
   // ===== Check wakeup cause FIRST =====
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 
+  print_wakeup_reason(cause);
+
   if (cause == ESP_SLEEP_WAKEUP_EXT1) {
     // ── Rain tip wakeup: increment count immediately and go back to sleep ──
     noInterrupts();
@@ -169,6 +220,9 @@ void setup() {
     delay(50);  // let serial drain
     esp_deep_sleep_start();
     // execution never reaches here
+  } else if (cause == 0) {
+    rainCount = 0;
+    motionCount = 0;
   }
 
   // ── All other wakeups (timer, EXT0, power-on) continue normally ──
@@ -231,14 +285,20 @@ void setup() {
   ota.begin();
   ota.setVersion(CURRENT_FIRMWARE_VERSION);
 
-  print_wakeup_reason();
-
   // LoRa send on EXT0 (MPU motion wakeup)
-  if (cause == ESP_SLEEP_WAKEUP_EXT0 && loRaAvailable) {
-    Serial.println("📡 Sending LoRa packet (motion wake)");
-    LoRa.beginPacket();
-    LoRa.print("Motion detected at " + tId);
-    LoRa.endPacket();
+  if (cause == ESP_SLEEP_WAKEUP_EXT0) {
+    Serial.println("[MOVEMENT] Detected count+1");
+    noInterrupts();
+    motionCount++;
+    interrupts();
+
+    if (loRaAvailable) {
+
+      Serial.println("📡 Sending LoRa packet (motion wake)");
+      LoRa.beginPacket();
+      LoRa.print("Motion detected at " + tId);
+      LoRa.endPacket();
+    }
   }
 
   // Read accumulated rainfall, then reset counter
@@ -251,6 +311,16 @@ void setup() {
 
   String response = sendGSMData(url);
   String otaVersion, otaUrl;
+
+  bool changed = isResponseDateChanged(url);
+
+  if (!changed) {
+    Serial.println("[DAY] SAME");
+  } else {
+    Serial.println("[DAY] CHANGED, VAIRABLE RESET");
+    motionCount = 0;
+    rainCount = 0;  // reset after reading
+  }
 
   if (!extractOTA(response, otaVersion, otaUrl)) {
     Serial.println("❌ OTA PARSE FAILED");
@@ -371,8 +441,8 @@ READ_BODY:
   return response;
 }
 
-void print_wakeup_reason() {
-  esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+void print_wakeup_reason(esp_sleep_wakeup_cause_t reason) {
+  // esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
   switch (reason) {
     case ESP_SLEEP_WAKEUP_EXT0: Serial.println("🔔 Wakeup: MPU interrupt"); break;
     case ESP_SLEEP_WAKEUP_EXT1: Serial.println("🌧️ Wakeup: Rain tip"); break;
@@ -474,7 +544,6 @@ void readMPU() {
 float getRainfallMM() {
   noInterrupts();
   unsigned long count = rainCount;
-  rainCount = 0;  // reset after reading
   interrupts();
 
   float mm = count * RAIN_MM_PER_TIP;
