@@ -221,8 +221,10 @@ void setup() {
     esp_deep_sleep_start();
     // execution never reaches here
   } else if (cause == 0) {
-    rainCount = 0;
+    noInterrupts();
     motionCount = 0;
+    rainCount = 0;
+    interrupts();
   }
 
   // ── All other wakeups (timer, EXT0, power-on) continue normally ──
@@ -318,8 +320,10 @@ void setup() {
     Serial.println("[DAY] SAME");
   } else {
     Serial.println("[DAY] CHANGED, VAIRABLE RESET");
+    noInterrupts();
     motionCount = 0;
-    rainCount = 0;  // reset after reading
+    rainCount = 0;
+    interrupts();
   }
 
   if (!extractOTA(response, otaVersion, otaUrl)) {
