@@ -314,7 +314,7 @@ void setup() {
   String response = sendGSMData(url);
   String otaVersion, otaUrl;
 
-  bool changed = isResponseDateChanged(url);
+  bool changed = isResponseDateChanged(response);
 
   if (!changed) {
     Serial.println("[DAY] SAME");
