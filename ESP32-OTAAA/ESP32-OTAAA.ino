@@ -295,293 +295,297 @@ void setup() {
     interrupts();
 
     if (loRaAvailable) {
-
       Serial.println("📡 Sending LoRa packet (motion wake)");
-      LoRa.beginPacket();
-      LoRa.print("Motion detected at " + tId);
-      LoRa.endPacket();
+      sendRH(payload, sizeof(payload));
+      delay(500);
+      sendRH(payload, sizeof(payload));
+      delay(500);
+      sendRH(payload, sizeof(payload));
+      delay(500);
+      sendRH(payload, sizeof(payload));
+      delay(500);
+      sendRH(payload, sizeof(payload));
     }
-  }
 
-  // Read accumulated rainfall, then reset counter
-  float rainfall = getRainfallMM();
+    // Read accumulated rainfall, then reset counter
+    float rainfall = getRainfallMM();
 
-  String url =
-    "https://landslidemonitoring.in/ota.php?api_key=3WU63XFVOKEC1VBM"
-    "&triplet="
-    + tId + "&" + tId + "s1=" + String(readTemp()) + "," + String(readHumidity()) + "&" + tId + "s2=" + String(readPressure()) + "&" + tId + "s3=" + String(rainfall) + "&" + tId + "s4=" + String(readLight()) + "&" + tId + "s5=" + getS5Reading() + "&" + tId + "s6=" + String(readSoilTemperature()) + "&" + tId + "s7=" + String(analogRead(SOIL_MOISTURE)) + "&" + tId + "s8=0" + "&" + tId + "s9=00.0000|00.0000";
+    String url =
+      "https://landslidemonitoring.in/ota.php?api_key=3WU63XFVOKEC1VBM"
+      "&triplet="
+      + tId + "&" + tId + "s1=" + String(readTemp()) + "," + String(readHumidity()) + "&" + tId + "s2=" + String(readPressure()) + "&" + tId + "s3=" + String(rainfall) + "&" + tId + "s4=" + String(readLight()) + "&" + tId + "s5=" + getS5Reading() + "&" + tId + "s6=" + String(readSoilTemperature()) + "&" + tId + "s7=" + String(analogRead(SOIL_MOISTURE)) + "&" + tId + "s8=0" + "&" + tId + "s9=00.0000|00.0000";
 
-  String response = sendGSMData(url);
-  String otaVersion, otaUrl;
+    String response = sendGSMData(url);
+    String otaVersion, otaUrl;
 
-  bool changed = isResponseDateChanged(response);
+    bool changed = isResponseDateChanged(response);
 
-  if (!changed) {
-    Serial.println("[DAY] SAME");
-  } else {
-    Serial.println("[DAY] CHANGED, VAIRABLE RESET");
-    noInterrupts();
-    motionCount = 0;
-    rainCount = 0;
-    interrupts();
-  }
-
-  if (!extractOTA(response, otaVersion, otaUrl)) {
-    Serial.println("❌ OTA PARSE FAILED");
-  } else {
-    Serial.println("✅ OTA PARSE OK");
-    Serial.println("Version : " + otaVersion);
-    Serial.println("URL (raw): " + otaUrl);
-
-    otaUrl.replace("\\/", "/");
-    Serial.println("URL (fixed): " + otaUrl);
-
-    if (otaVersion == CURRENT_FIRMWARE_VERSION) {
-      Serial.println("Firmware already up to date");
+    if (!changed) {
+      Serial.println("[DAY] SAME");
     } else {
-      Serial.println("🚀 STARTING OTA FLASH");
-      ota.performOTA(otaUrl);
+      Serial.println("[DAY] CHANGED, VAIRABLE RESET");
+      noInterrupts();
+      motionCount = 0;
+      rainCount = 0;
+      interrupts();
     }
-  }
 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  Serial.println("💤 Going to sleep for " + String(TIME_TO_SLEEP) + " sec...");
-  Serial.flush();
-  esp_deep_sleep_start();
-}
+    if (!extractOTA(response, otaVersion, otaUrl)) {
+      Serial.println("❌ OTA PARSE FAILED");
+    } else {
+      Serial.println("✅ OTA PARSE OK");
+      Serial.println("Version : " + otaVersion);
+      Serial.println("URL (raw): " + otaUrl);
 
-void loop() {}
+      otaUrl.replace("\\/", "/");
+      Serial.println("URL (fixed): " + otaUrl);
 
-// ===================== OTA JSON Parser =====================
-bool extractOTA(String payload, String &version, String &url) {
-  int v = payload.indexOf("\"ota_version\"");
-  int u = payload.indexOf("\"ota_url\"");
-  if (v == -1 || u == -1) return false;
-
-  int vs = payload.indexOf("\"", v + 13) + 1;
-  int ve = payload.indexOf("\"", vs);
-  version = payload.substring(vs, ve);
-
-  int us = payload.indexOf("\"", u + 9) + 1;
-  int ue = payload.indexOf("\"", us);
-  url = payload.substring(us, ue);
-
-  return true;
-}
-
-// ===================== GSM =====================
-String sendGSMData(String url) {
-  Serial.println("*************URL*************");
-  Serial.println(url);
-  Serial.println("*****************************");
-
-  String response = "";
-  String urcLine = "";
-
-  SerialAt.println("AT");
-  delay(200);
-  SerialAt.println("AT+CGDCONT=1,\"IP\",\"airtelgprs.com\"");
-  delay(200);
-  SerialAt.println("AT+CGACT=1,1");
-  delay(1000);
-  SerialAt.println("AT+HTTPINIT");
-  delay(1000);
-  SerialAt.print("AT+HTTPPARA=\"URL\",\"");
-  SerialAt.print(url);
-  SerialAt.println("\"");
-  delay(500);
-  SerialAt.println("AT+HTTPACTION=0");
-
-  unsigned long start = millis();
-  int contentLength = -1;
-
-  while (millis() - start < 20000) {
-    while (SerialAt.available()) {
-      char c = SerialAt.read();
-      if (c == '\n') {
-        urcLine.trim();
-        if (urcLine.length()) Serial.println(urcLine);
-        if (urcLine.startsWith("+HTTPACTION:")) {
-          int lastComma = urcLine.lastIndexOf(',');
-          if (lastComma != -1)
-            contentLength = urcLine.substring(lastComma + 1).toInt();
-          goto READ_BODY;
-        }
-        urcLine = "";
+      if (otaVersion == CURRENT_FIRMWARE_VERSION) {
+        Serial.println("Firmware already up to date");
       } else {
-        urcLine += c;
+        Serial.println("🚀 STARTING OTA FLASH");
+        ota.performOTA(otaUrl);
       }
     }
+
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+    Serial.println("💤 Going to sleep for " + String(TIME_TO_SLEEP) + " sec...");
+    Serial.flush();
+    esp_deep_sleep_start();
   }
+
+  void loop() {}
+
+  // ===================== OTA JSON Parser =====================
+  bool extractOTA(String payload, String & version, String & url) {
+    int v = payload.indexOf("\"ota_version\"");
+    int u = payload.indexOf("\"ota_url\"");
+    if (v == -1 || u == -1) return false;
+
+    int vs = payload.indexOf("\"", v + 13) + 1;
+    int ve = payload.indexOf("\"", vs);
+    version = payload.substring(vs, ve);
+
+    int us = payload.indexOf("\"", u + 9) + 1;
+    int ue = payload.indexOf("\"", us);
+    url = payload.substring(us, ue);
+
+    return true;
+  }
+
+  // ===================== GSM =====================
+  String sendGSMData(String url) {
+    Serial.println("*************URL*************");
+    Serial.println(url);
+    Serial.println("*****************************");
+
+    String response = "";
+    String urcLine = "";
+
+    SerialAt.println("AT");
+    delay(200);
+    SerialAt.println("AT+CGDCONT=1,\"IP\",\"airtelgprs.com\"");
+    delay(200);
+    SerialAt.println("AT+CGACT=1,1");
+    delay(1000);
+    SerialAt.println("AT+HTTPINIT");
+    delay(1000);
+    SerialAt.print("AT+HTTPPARA=\"URL\",\"");
+    SerialAt.print(url);
+    SerialAt.println("\"");
+    delay(500);
+    SerialAt.println("AT+HTTPACTION=0");
+
+    unsigned long start = millis();
+    int contentLength = -1;
+
+    while (millis() - start < 20000) {
+      while (SerialAt.available()) {
+        char c = SerialAt.read();
+        if (c == '\n') {
+          urcLine.trim();
+          if (urcLine.length()) Serial.println(urcLine);
+          if (urcLine.startsWith("+HTTPACTION:")) {
+            int lastComma = urcLine.lastIndexOf(',');
+            if (lastComma != -1)
+              contentLength = urcLine.substring(lastComma + 1).toInt();
+            goto READ_BODY;
+          }
+          urcLine = "";
+        } else {
+          urcLine += c;
+        }
+      }
+    }
 
 READ_BODY:
-  if (contentLength <= 0) {
-    Serial.println("❌ HTTPACTION failed or empty response");
+    if (contentLength <= 0) {
+      Serial.println("❌ HTTPACTION failed or empty response");
+      SerialAt.println("AT+HTTPTERM");
+      return "";
+    }
+
+    SerialAt.print("AT+HTTPREAD=0,");
+    SerialAt.println(contentLength);
+
+    start = millis();
+    while (millis() - start < 20000) {
+      while (SerialAt.available()) response += (char)SerialAt.read();
+      if (response.indexOf("}") != -1) break;
+    }
+
     SerialAt.println("AT+HTTPTERM");
-    return "";
+    delay(500);
+
+    int js = response.indexOf("{");
+    int je = response.lastIndexOf("}");
+    if (js != -1 && je != -1 && je > js)
+      response = response.substring(js, je + 1);
+    else
+      response = "";
+
+    Serial.println("===== RAW RESPONSE =====");
+    Serial.println(response);
+    return response;
   }
 
-  SerialAt.print("AT+HTTPREAD=0,");
-  SerialAt.println(contentLength);
+  void print_wakeup_reason(esp_sleep_wakeup_cause_t reason) {
+    // esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+    switch (reason) {
+      case ESP_SLEEP_WAKEUP_EXT0: Serial.println("🔔 Wakeup: MPU interrupt"); break;
+      case ESP_SLEEP_WAKEUP_EXT1: Serial.println("🌧️ Wakeup: Rain tip"); break;
+      case ESP_SLEEP_WAKEUP_TIMER: Serial.println("⏰ Wakeup: Timer (scheduled)"); break;
+      default: Serial.printf("Wakeup cause: %d\n", reason); break;
+    }
+  }
 
-  start = millis();
-  while (millis() - start < 20000) {
+  void readGSM() {
+    delay(100);
+    while (SerialAt.available()) Serial.write(SerialAt.read());
+  }
+
+  // ===================== Sensors =====================
+  void initBH1750() {
+    if (!lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23))
+      Serial.println("❌ BH1750 not found!");
+  }
+
+  void initBMP180() {
+    if (!bmp.begin())
+      Serial.println("❌ BMP180 not found!");
+  }
+
+  float readLight() {
+    float lux = lightMeter.readLightLevel();
+    Serial.printf("💡 Light: %.2f lx\n", lux);
+    return lux;
+  }
+
+  float readPressure() {
+    uint32_t d = bmp.readPressure();
+    float p = (d != 0) ? d / 100.0 : 0;
+    Serial.printf("🌡️ Pressure: %.2f hPa\n", p);
+    return p;
+  }
+
+  float readSoilTemperature() {
+    int analogValue = analogRead(SOIL_TEMP_PIN);
+    float voltage = analogValue * (3.3 / 4095.0);
+    float temperatureC = (voltage / 3.3) * 100.0;
+    Serial.printf("🌱 Soil Temp: %.2f °C\n", temperatureC);
+    return temperatureC;
+  }
+
+  bool initMPU() {
+    if (!mpu.begin()) {
+      Serial.println("❌ MPU6050 not found!");
+      return false;
+    }
+    Serial.println("✅ MPU6050 initialized.");
+    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
+    mpu.setMotionDetectionThreshold(1);
+    mpu.setMotionDetectionDuration(1);
+    mpu.setInterruptPinLatch(true);
+    mpu.setInterruptPinPolarity(false);
+    mpu.setMotionInterrupt(true);
+    return true;
+  }
+
+  float readTemp() {
+    float t = dht.readTemperature();
+    if (isnan(t)) t = 255;
+    Serial.printf("🌡️ Air Temp: %.2f°C\n", t);
+    return t;
+  }
+
+  float readHumidity() {
+    float h = dht.readHumidity();
+    if (isnan(h)) h = 255;
+    Serial.printf("💧 Humidity: %.2f%%\n", h);
+    return h;
+  }
+
+  void readMPU() {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float Ax = a.acceleration.x;
+    float Ay = a.acceleration.y;
+    float Az = a.acceleration.z;
+    float Wx = g.gyro.x * (180.0 / PI);
+    float Wy = g.gyro.y * (180.0 / PI);
+    float Wz = g.gyro.z * (180.0 / PI);
+
+    float roll = atan2(Ay, Az) * 180.0 / PI;
+    float pitch = atan(-Ax / sqrt(Ay * Ay + Az * Az)) * 180.0 / PI;
+    float yaw = atan2(Wy, Wx) * 180.0 / PI;
+
+    Serial.println("--------- MPU DATA ---------");
+    Serial.printf("Ax: %.2f  Ay: %.2f  Az: %.2f (m/s²)\n", Ax, Ay, Az);
+    Serial.printf("Wx: %.2f  Wy: %.2f  Wz: %.2f (°/s)\n", Wx, Wy, Wz);
+    Serial.printf("Roll:  %.2f°\nPitch: %.2f°\nYaw:   %.2f°\n", roll, pitch, yaw);
+    Serial.println("----------------------------");
+  }
+
+  float getRainfallMM() {
+    noInterrupts();
+    unsigned long count = rainCount;
+    interrupts();
+
+    float mm = count * RAIN_MM_PER_TIP;
+    Serial.printf("🌧️ Rainfall: %.4f mm  (%lu tips)\n", mm, count);
+    return mm;
+  }
+
+  String getGNSSLocation() {
+    SerialAt.println("AT+CGNSINF");
+    delay(1000);
+    String response = "";
     while (SerialAt.available()) response += (char)SerialAt.read();
-    if (response.indexOf("}") != -1) break;
+    int latStart = response.indexOf(",", 28);
+    int lonStart = response.indexOf(",", latStart + 1);
+    int lonEnd = response.indexOf(",", lonStart + 1);
+    if (latStart > 0 && lonStart > 0 && lonEnd > 0) {
+      String lat = response.substring(latStart + 1, lonStart);
+      lat.trim();
+      String lon = response.substring(lonStart + 1, lonEnd);
+      lon.trim();
+      return lat + "," + lon;
+    }
+    return "0.0,0.0";
   }
 
-  SerialAt.println("AT+HTTPTERM");
-  delay(500);
+  String getS5Reading() {
+    mpu.getEvent(&a, &g, &temp);
+    float roll = atan2(a.acceleration.y, a.acceleration.z) * 180.0 / PI;
+    float pitch = atan(-a.acceleration.x / sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180.0 / PI;
+    float yaw = atan2(g.gyro.z, g.gyro.x) * 180.0 / PI;
 
-  int js = response.indexOf("{");
-  int je = response.lastIndexOf("}");
-  if (js != -1 && je != -1 && je > js)
-    response = response.substring(js, je + 1);
-  else
-    response = "";
-
-  Serial.println("===== RAW RESPONSE =====");
-  Serial.println(response);
-  return response;
-}
-
-void print_wakeup_reason(esp_sleep_wakeup_cause_t reason) {
-  // esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
-  switch (reason) {
-    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("🔔 Wakeup: MPU interrupt"); break;
-    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("🌧️ Wakeup: Rain tip"); break;
-    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("⏰ Wakeup: Timer (scheduled)"); break;
-    default: Serial.printf("Wakeup cause: %d\n", reason); break;
+    return String(a.acceleration.x, 2) + "," + String(a.acceleration.y, 2) + "," + String(a.acceleration.z, 2) + "," + String(g.gyro.x, 2) + "," + String(g.gyro.y, 2) + "," + String(g.gyro.z, 2) + "," + String(roll, 2) + "," + String(pitch, 2) + "," + String(yaw, 2) + "," + String(motionCount) + ",0,0";
   }
-}
-
-void readGSM() {
-  delay(100);
-  while (SerialAt.available()) Serial.write(SerialAt.read());
-}
-
-// ===================== Sensors =====================
-void initBH1750() {
-  if (!lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23))
-    Serial.println("❌ BH1750 not found!");
-}
-
-void initBMP180() {
-  if (!bmp.begin())
-    Serial.println("❌ BMP180 not found!");
-}
-
-float readLight() {
-  float lux = lightMeter.readLightLevel();
-  Serial.printf("💡 Light: %.2f lx\n", lux);
-  return lux;
-}
-
-float readPressure() {
-  uint32_t d = bmp.readPressure();
-  float p = (d != 0) ? d / 100.0 : 0;
-  Serial.printf("🌡️ Pressure: %.2f hPa\n", p);
-  return p;
-}
-
-float readSoilTemperature() {
-  int analogValue = analogRead(SOIL_TEMP_PIN);
-  float voltage = analogValue * (3.3 / 4095.0);
-  float temperatureC = (voltage / 3.3) * 100.0;
-  Serial.printf("🌱 Soil Temp: %.2f °C\n", temperatureC);
-  return temperatureC;
-}
-
-bool initMPU() {
-  if (!mpu.begin()) {
-    Serial.println("❌ MPU6050 not found!");
-    return false;
-  }
-  Serial.println("✅ MPU6050 initialized.");
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
-  mpu.setMotionDetectionThreshold(1);
-  mpu.setMotionDetectionDuration(1);
-  mpu.setInterruptPinLatch(true);
-  mpu.setInterruptPinPolarity(false);
-  mpu.setMotionInterrupt(true);
-  return true;
-}
-
-float readTemp() {
-  float t = dht.readTemperature();
-  if (isnan(t)) t = 255;
-  Serial.printf("🌡️ Air Temp: %.2f°C\n", t);
-  return t;
-}
-
-float readHumidity() {
-  float h = dht.readHumidity();
-  if (isnan(h)) h = 255;
-  Serial.printf("💧 Humidity: %.2f%%\n", h);
-  return h;
-}
-
-void readMPU() {
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-
-  float Ax = a.acceleration.x;
-  float Ay = a.acceleration.y;
-  float Az = a.acceleration.z;
-  float Wx = g.gyro.x * (180.0 / PI);
-  float Wy = g.gyro.y * (180.0 / PI);
-  float Wz = g.gyro.z * (180.0 / PI);
-
-  float roll = atan2(Ay, Az) * 180.0 / PI;
-  float pitch = atan(-Ax / sqrt(Ay * Ay + Az * Az)) * 180.0 / PI;
-  float yaw = atan2(Wy, Wx) * 180.0 / PI;
-
-  Serial.println("--------- MPU DATA ---------");
-  Serial.printf("Ax: %.2f  Ay: %.2f  Az: %.2f (m/s²)\n", Ax, Ay, Az);
-  Serial.printf("Wx: %.2f  Wy: %.2f  Wz: %.2f (°/s)\n", Wx, Wy, Wz);
-  Serial.printf("Roll:  %.2f°\nPitch: %.2f°\nYaw:   %.2f°\n", roll, pitch, yaw);
-  Serial.println("----------------------------");
-}
-
-float getRainfallMM() {
-  noInterrupts();
-  unsigned long count = rainCount;
-  interrupts();
-
-  float mm = count * RAIN_MM_PER_TIP;
-  Serial.printf("🌧️ Rainfall: %.4f mm  (%lu tips)\n", mm, count);
-  return mm;
-}
-
-String getGNSSLocation() {
-  SerialAt.println("AT+CGNSINF");
-  delay(1000);
-  String response = "";
-  while (SerialAt.available()) response += (char)SerialAt.read();
-  int latStart = response.indexOf(",", 28);
-  int lonStart = response.indexOf(",", latStart + 1);
-  int lonEnd = response.indexOf(",", lonStart + 1);
-  if (latStart > 0 && lonStart > 0 && lonEnd > 0) {
-    String lat = response.substring(latStart + 1, lonStart);
-    lat.trim();
-    String lon = response.substring(lonStart + 1, lonEnd);
-    lon.trim();
-    return lat + "," + lon;
-  }
-  return "0.0,0.0";
-}
-
-String getS5Reading() {
-  mpu.getEvent(&a, &g, &temp);
-  float roll = atan2(a.acceleration.y, a.acceleration.z) * 180.0 / PI;
-  float pitch = atan(-a.acceleration.x / sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180.0 / PI;
-  float yaw = atan2(g.gyro.z, g.gyro.x) * 180.0 / PI;
-
-  return String(a.acceleration.x, 2) + "," + String(a.acceleration.y, 2) + "," + String(a.acceleration.z, 2) + "," + String(g.gyro.x, 2) + "," + String(g.gyro.y, 2) + "," + String(g.gyro.z, 2) + "," + String(roll, 2) + "," + String(pitch, 2) + "," + String(yaw, 2) + "," + String(motionCount) + ",0,0";
-}
-/*
+  /*
 t1&t1s1=28.60,42.10
 &t1s2=882.61
 &t1s3=1.68
@@ -593,7 +597,7 @@ t1&t1s1=28.60,42.10
 &t1s9=00.0000|00.0000
 */
 
-/*
+  /*
   AT+CGDCONT=1,"IP","airtelgprs.com"
   AT+CGACT=1,1
   AT+HTTPINIT
@@ -603,11 +607,11 @@ t1&t1s1=28.60,42.10
   */
 
 
-/*
+  /*
 https://landslidemonitoring.in/ota.php?api_key=3WU63XFVOKEC1VBM&triplet=t1&t1s1=255.00,255.00&t1s2=2.55&t1s3=0.00&t1s4=-2.00&t1s5=7.35,-82.69,0.62,-14.64,18.67,-14.92,-89.57,-5.08,-134.47,0,0,0&t1s6=32.50&t1s7=61&t1s8=0&t1s9=00.0000|00.0000
 */
 
-/*
+  /*
 http://landslidemonitoring.esy.es/ota.php?api_key=3WU63XFVOKEC1VBM&triplet=
 t1&t1s1=20.50,57.90&
 t1s2=892.71&
@@ -620,7 +624,7 @@ t1s8=0&
 t1s9=00.0000|00.0000
 */
 
-/*
+  /*
 http://landslidemonitoring.esy.es/ota.php?api_key=3WU63XFVOKEC1VBM&triplet=t1&
 t1s1=20.70,58.00&       //temp+humidity
 t1s2=892.56&            //pressure
